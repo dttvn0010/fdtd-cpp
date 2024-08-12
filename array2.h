@@ -80,29 +80,35 @@ protected:
         return _data[i2 * _step2 + i1 * _step1];
     }
     
-
-    Array<T> _row_at(int i1) const
+    template<int ax>
+    Array<T> _get(int idx) const
     {
-        return Array<T>(
-            _data + i1 * _step1,
+        if constexpr(ax==0)
+        {
+            return Array<T>(
+            _data + idx * _step1,
             _shape2,
             _step2,
             true,
             get_p_signature()
         );
-    }
-
-    Array<T> _column_at(int i2) const
-    {
-        return Array<T>(
-            _data + i2 * _step2,
+        }
+        if constexpr(ax==1)
+        {
+            return Array<T>(
+            _data + idx * _step2,
             _shape1,
             _step1,
             true,
             get_p_signature()
         );
+        }
     }
 
+    int get_min_axis() const
+    {
+        return _shape1 < _shape2 ? 0 : 1;
+    }
 
     Array2(T* data, int shape1, int shape2, int step1, int step2, bool is_view=false, const size_t* p_signature=NULL)
     {
@@ -138,6 +144,16 @@ protected:
             }
             #endif
         }
+    }
+
+    bool is_compact() const
+    {
+        return _step2 == 1 && _step1 == _shape2;
+    }
+
+    Array<T> get_compact_view() const
+    {
+        return Array<T>(_data, _shape1 * _shape2, 1, true, get_p_signature());
     }
 public:
     Array2()
@@ -205,39 +221,6 @@ public:
         return _at(i1, i2);
     }
 
-    Array<T> get_row(int i1_) const
-    {
-        _check_valid();
-        int i1 = i1_ < 0 ? _shape1 + i1_ : i1_;
-
-        #ifdef DEBUG
-        if(i1 < 0 || i1 >= _shape1)
-        {
-            panic("Index %d is out of range %d\n", i1_, _shape1);
-        }
-        #endif
-        return _row_at(i1);
-    }
-
-    Array<T> get_column(int i2_) const
-    {
-        _check_valid();
-        int i2 = i2_ < 0 ? _shape2 + i2_ : i2_;
-
-        #ifdef DEBUG
-        if(i2 < 0 || i2 >= _shape2)
-        {
-            panic("Index %d is out of range %d\n", i2_, _shape2);
-        }
-        #endif
-        return _column_at(i2);
-    }
-
-    auto get(int i1, Slice i2)
-    {
-        return get_row(i1).get(i2);
-    }
-
     static Array2 from_raw(T* raw, Tuple<int, int> shape)
     {
         int n = shape.size();
@@ -296,11 +279,7 @@ public:
     Array2<U> as_type() const {
         _check_valid();
         Array2<U> res = Array2<U>::zeros(shape());
-
-        for(int i1 = 0; i1 < _shape1; i1++) 
-        {
-            res._row_at(i1).copy_from(_row_at(i1));
-        }
+        res.copy_from(*this);
         return res;
     }
 
@@ -313,6 +292,7 @@ public:
     {
         _check_valid();
         T* data = _data;
+        _shape1 = _shape2 = 0;
         _data = NULL;
         return data;
     }
@@ -346,8 +326,8 @@ public:
 
         for(int i = 0; i < row_indexes.size(); i++)
         {
-            auto out_row = out.get_row(i);
-            get_row(row_indexes._at(i)).get_by_indexes_to(col_indexes, out_row);
+            auto out_row = out.template _get<0>(i);
+            _get<0>(row_indexes._at(i)).get_by_indexes_to(col_indexes, out_row);
         }
     }
 
@@ -380,7 +360,7 @@ public:
 
         for(int i = 0; i < row_indexes.size(); i++)
         {
-            get_row(row_indexes._at(i)).set_by_indexes(col_indexes, val);
+            _get<0>(row_indexes._at(i)).set_by_indexes(col_indexes, val);
         }
     }
 
@@ -393,8 +373,8 @@ public:
 
         for(int i = 0; i < row_indexes.size(); i++)
         {
-            auto val_row = val.get_row(i);
-            get_row(row_indexes._at(i)).set_by_indexes(col_indexes, val_row);
+            auto val_row = val.template _get<0>(i);
+            _get<0>(row_indexes._at(i)).set_by_indexes(col_indexes, val_row);
         }
     }
 
@@ -491,7 +471,7 @@ public:
         int i = 0;
         for(int i1 = 0; i1 < _shape1; i1++) 
         {
-            auto row = get_row(i1);
+            auto row = _get<0>(i1);
             for(int i2 = 0; i2 < _shape2; i2++)
             {
                 if(masks._at(i))
@@ -535,7 +515,7 @@ public:
         arr._check_valid();
 
         for(int i2=0; i2 < _shape2; i2++){
-            arr._row_at(i2).copy_from(_column_at(i2));
+            arr.template _get<0>(i2).copy_from(_get<1>(i2));
         }
     }
 
@@ -549,35 +529,33 @@ public:
     void set_all(const T& value)
     {
         _check_valid();
-        for(int i1=0; i1 < _shape1; i1++){
-            _row_at(i1).set_all(value);
+
+        if(is_compact())
+        {
+            get_compact_view().set_all(value);
+            return;
+        }
+
+        int min_ax = get_min_axis();
+        if(min_ax == 0)
+        {
+            for(int i1=0; i1 < _shape1; i1++)
+            {
+                _get<0>(i1).set_all(value);
+            }
+        }
+        if(min_ax == 1)
+        {
+            for(int i2=0; i2 < _shape2; i2++)
+            {
+                _get<1>(i2).set_all(value);
+            }
         }
     }
 
     void assign(const T& value)
     {
         set_all(value);
-    }
-
-    template<typename U>
-    void set_all_rows(const Array<U>& row) {
-        _check_valid();
-        row._check_valid();
-
-        if(row._size != _shape2)
-        {
-            panic("Array sizes mismatch : %d vs %d\n", _shape2, row._size);
-        }
-        for(int i1 = 0; i1 < _shape1; i1++)
-        {
-            _row_at(i1).copy_from(row);
-        }
-    }
-
-    template<typename U>
-    void assign(const Array<U>& row)
-    {
-        set_all_rows(row);
     }
 
     template<typename U>
@@ -591,9 +569,26 @@ public:
             panic("Array size mismatch (%d, %d) vs (%d, %d)\n", _shape1, _shape2, oth._shape1, oth._shape2);
         }
 
-        for(int i1 = 0; i1 < _shape1; i1++) 
+        if(is_compact() && oth.is_compact())
         {
-            _row_at(i1).copy_from(oth._row_at(i1));
+            get_compact_view().copy_from(oth.get_compact_view());
+            return;
+        }
+
+        int min_ax = get_min_axis();
+        if(min_ax == 0)
+        {
+            for(int i1 = 0; i1 < _shape1; i1++) 
+            {
+                _get<0>(i1).copy_from(oth.template _get<0>(i1));
+            }
+        }
+        if(min_ax == 1)
+        {
+            for(int i2 = 0; i2 < _shape2; i2++) 
+            {
+                _get<1>(i2).copy_from(oth.template _get<1>(i2));
+            }
         }
     }
 
@@ -601,22 +596,6 @@ public:
     void assign(const Array2<U>& oth)
     {
         copy_from(oth);
-    }
-
-    template<typename U>
-    void set_all_columns(const Array<U>& col) 
-    {
-        _check_valid();
-        col._check_valid();
-
-        if(col._size != _shape1)
-        {
-            panic("Array sizes mismatch: %d vs %d\n", _shape1, col._size);
-        }
-        for(int i2 = 0; i2 < _shape2; i2++)
-        {
-            _column_at(i2).copy_from(col);
-        }
     }
 
     Array2Iterator<T> begin() const
@@ -633,7 +612,16 @@ public:
     
     Array<T> operator[](int idx)
     {
-        return get_row(idx);
+        _check_valid();
+        int i1 = idx < 0 ? _shape1 + idx : idx;
+
+        #ifdef DEBUG
+        if(i1 < 0 || i1 >= _shape1)
+        {
+            panic("Index %d is out of range %d\n", idx, _shape1);
+        }
+        #endif
+        return _get<0>(i1);
     }
 
     Array2<T> get(Slice idx1, Slice idx2)
@@ -724,10 +712,30 @@ public:
         res._check_valid();
         assert(func <= NUM_FUNC);
 
-        for(int i1 = 0; i1 < _shape1; i1++)
+        if(is_compact() && res.is_compact())
         {
-            auto res_row = res._row_at(i1); 
-            _row_at(i1).template unary_ops_compute<func>(res_row);
+            auto tmp = res.get_compact_view();
+            get_compact_view().template unary_ops_compute<func>(tmp);
+        }
+        else
+        {
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
+            {
+                for(int i1 = 0; i1 < _shape1; i1++)
+                {
+                    auto res_row = res.template _get<0>(i1); 
+                    _get<0>(i1).template unary_ops_compute<func>(res_row);
+                }
+            }
+            else
+            {
+                for(int i2 = 0; i2 < _shape2; i2++)
+                {
+                    auto res_col = res.template _get<1>(i2); 
+                    _get<1>(i2).template unary_ops_compute<func>(res_col);
+                }
+            }
         }
     }
 
@@ -803,8 +811,8 @@ public:
         return unary_ops<FUNC_ATAN>();
     }
 
-    template<int ops, typename U>
-    void bin_ops_assign(const U& rhs) {
+    template<int ops>
+    void bin_ops_assign(const T& rhs) {
         _check_valid();
 
         if constexpr(ops > NUM_OP)
@@ -812,9 +820,20 @@ public:
             panic("Invalid operator: %d\n", ops);
         }
 
-        for(auto row : *this)
+        int min_ax = get_min_axis();
+        if(min_ax == 0)
         {
-            row.template bin_ops_assign<ops>(rhs);
+            for(int i = 0; i < _shape1; i++)
+            {
+                _get<0>(i).template bin_ops_assign<ops>(rhs);
+            }
+        }
+        else 
+        {
+            for(int i = 0; i < _shape2; i++)
+            {
+                _get<1>(i).template bin_ops_assign<ops>(rhs);
+            }
         }
     }
 
@@ -836,19 +855,32 @@ public:
             panic("Dimensions mismatch: (%d,%d) vs (%d, %d)", _shape1, _shape2, rhs._shape1, rhs._shape2);
         }
 
-        if(rhs._shape1 == 1)
+        if(is_compact() && rhs.is_compact() && _shape1 == rhs._shape1 && _shape2 == rhs._shape2)
         {
-            for(auto row : *this)
-            {
-                row.template bin_ops_assign<ops>(rhs._row_at(0));
-            }
+            get_compact_view().template bin_ops_assign<ops>(rhs.get_compact_view());
         }
         else
         {
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
+            {
+                for(int i = 0; i < _shape1; i++)
+                {
+                    _get<0>(i).template bin_ops_assign<ops>(rhs.template _get<0>(i < rhs._shape1 ? i : 0));
+                }
+            }
+            else 
+            {
+                for(int i = 0; i < _shape2; i++)
+                {
+                    _get<1>(i).template bin_ops_assign<ops>(rhs.template _get<1>(i < rhs._shape2 ? i : 0));
+                }
+            }
+            /*
             for(auto [l_row, r_row] : zip(*this, rhs))
             {
                 l_row.template bin_ops_assign<ops>(r_row);    
-            }
+            }*/
         }
     }
 
@@ -892,8 +924,8 @@ public:
         bin_ops_assign<OP_XOR>(rhs);
     }
 
-    template<typename U, int ops, typename V>
-    static void bin_ops_compute(const Array2<T>& lhs, const V& rhs, Array2<U>& res)
+    template<typename U, int ops>
+    static void bin_ops_compute(const Array2<T>& lhs, const T& rhs, Array2<U>& res)
     {
         lhs._check_valid();
 
@@ -902,13 +934,29 @@ public:
             panic("Invalid operator: %d", ops);
         }
 
-        for(auto[l_row, res_row] : zip(lhs, res))
+        if(lhs.is_compact() && res.is_compact())
         {
-            Array<T>::template bin_ops_compute<U, ops>(
-                l_row,
-                rhs,
-                res_row
-            );
+            auto tmp = res.get_compact_view();
+            Array<T>::template bin_ops_compute<U, ops>(lhs.get_compact_view(), rhs, tmp);
+            return;
+        }
+
+        int min_ax = lhs.get_min_axis();
+        if(min_ax == 0)
+        {
+            for(int i = 0; i < lhs._shape1; i++)
+            {
+                auto tmp = res.template _get<0>(i);
+                Array<T>::template bin_ops_compute<U, ops>(lhs.template _get<0>(i), rhs, tmp);
+            }
+        }
+        if(min_ax == 1)
+        {
+            for(int i = 0; i < lhs._shape2; i++)
+            {
+                auto tmp = res.template _get<1>(i);
+                Array<T>::template bin_ops_compute<U, ops>(lhs.template _get<1>(i), rhs, tmp);
+            }
         }
     }
 
@@ -933,9 +981,21 @@ public:
         }
 
         int shape1 = lhs._shape1 > rhs._shape1 ? lhs._shape1 : rhs._shape1;
+        int shape2 = lhs._shape2 > rhs._shape2 ? lhs._shape2 : rhs._shape2;
 
-        if(lhs._shape1 > 1 && rhs._shape1 > 1)
+        if(lhs.is_compact() && rhs.is_compact() && res.is_compact() && 
+            lhs._shape1 == rhs._shape1 && lhs._shape2 == rhs._shape2
+        ){
+            auto tmp = res.get_compact_view();
+            Array<T>::template bin_ops_compute<U, ops>(
+                lhs.get_compact_view(),
+                rhs.get_compact_view(),
+                tmp
+            );
+        }
+        else
         {
+            /*
             for(auto [l_row,r_row,res_row] : zip(lhs, rhs, res))
             {
                 Array<T>::template bin_ops_compute<U, ops>(
@@ -943,21 +1003,37 @@ public:
                     r_row,
                     res_row
                 );
-            }
-        }
-        else
-        {
-            for(int i1 = 0; i1 < shape1; i1++)
+            }*/
+            int min_ax = lhs.get_min_axis();
+            if(min_ax == 0)
             {
-                auto l_row = lhs._row_at(lhs._shape1 > 1? i1 : 0);
-                auto r_row = rhs._row_at(rhs._shape1 > 1? i1:0);
-                auto res_row = res._row_at(i1);
+                for(int i1 = 0; i1 < shape1; i1++)
+                {
+                    auto l_row = lhs.template _get<0>(i1 < lhs._shape1 ? i1 : 0);
+                    auto r_row = rhs.template _get<0>(i1 < rhs._shape1 ? i1 : 0);
+                    auto res_row = res.template _get<0>(i1);
 
-                Array<T>::template bin_ops_compute<U, ops>(
-                    l_row,
-                    r_row,
-                    res_row
-                );
+                    Array<T>::template bin_ops_compute<U, ops>(
+                        l_row,
+                        r_row,
+                        res_row
+                    );
+                }
+            }
+            else
+            {
+                for(int i2 = 0; i2 < shape2; i2++)
+                {
+                    auto l_col = lhs.template _get<1>(i2 < lhs._shape2 ? i2 : 0);
+                    auto r_col = rhs.template _get<1>(i2 < rhs._shape2 ? i2 : 0);
+                    auto res_col = res.template _get<1>(i2);
+
+                    Array<T>::template bin_ops_compute<U, ops>(
+                        l_col,
+                        r_col,
+                        res_col
+                    );
+                }
             }
         }
     }
@@ -1071,11 +1147,11 @@ public:
         if(ax == 0)
         {
             for(int i = 0; i < sz; i++) 
-                res._at(i) = get_column(i).template reduce_ops<U, ops>();
+                res._at(i) = _get<1>(i).template reduce_ops<U, ops>();
         }else
         {
             for(int i = 0; i < sz; i++)
-                res._at(i) = get_row(i).template reduce_ops<U, ops>();
+                res._at(i) = _get<0>(i).template reduce_ops<U, ops>();
         }
 
     }
@@ -1102,11 +1178,11 @@ public:
         if(ax == 0)
         {
             for(int i = 0; i < sz; i++) 
-                res._at(i) = get_column(i).percentile(p);
+                res._at(i) = _get<1>(i).percentile(p);
         }else
         {
             for(int i = 0; i < sz; i++)
-                res._at(i) = get_row(i).percentile(p);
+                res._at(i) = _get<0>(i).percentile(p);
         }
 
         return res;
@@ -1212,13 +1288,13 @@ public:
         {
             for(int i = 0; i < _shape1; i++)
             {
-                _row_at(i).sort();
+                _get<0>(i).sort();
             }
         } else
         {
             for(int i = 0; i < _shape2; i++)
             {
-                _column_at(i).sort();
+                _get<1>(i).sort();
             }
         }
     }
@@ -1235,13 +1311,13 @@ public:
         {
             for(int i = 0; i < _shape1; i++)
             {
-                arr._row_at(i).copy_from(_row_at(i).argsort());
+                arr.template _get<0>(i).copy_from(_get<0>(i).argsort());
             }
         } else
         {
             for(int i = 0; i < _shape2; i++)
             {
-                arr._column_at(i).copy_from(_column_at(i).argsort());
+                arr.template _get<1>(i).copy_from(_get<1>(i).argsort());
             }
         }
         return arr;

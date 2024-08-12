@@ -1,8 +1,6 @@
 #ifndef __ARRAY4_H__
 #define __ARRAY4_H__
-#include "array.h"
 #include "array3.h"
-#include <cassert>
 
 template<typename T>
 class Array4 : public Object
@@ -73,21 +71,97 @@ protected:
         }
     }
 
+    template<int ax>
     Array3<T> _get(int idx) const
     {
-        return Array3<T>(
-            _data + idx * _step1,
-            _shape2,
-            _shape3,
-            _shape4,
-            _step2,
-            _step3,
-            _step4,
-            true,
-            get_p_signature()
-        );
+        if constexpr(ax == 0)
+        {
+            return Array3<T>(
+                _data + idx * _step1,
+                _shape2,
+                _shape3,
+                _shape4,
+                _step2,
+                _step3,
+                _step4,
+                true,
+                get_p_signature()
+            );
+        }
+        if constexpr(ax == 1)
+        {
+            return Array3<T>(
+                _data + idx * _step2,
+                _shape1,
+                _shape3,
+                _shape4,
+                _step1,
+                _step3,
+                _step4,
+                true,
+                get_p_signature()
+            );
+        }
+        if constexpr(ax == 2)
+        {
+            return Array3<T>(
+                _data + idx * _step3,
+                _shape1,
+                _shape2,
+                _shape4,
+                _step1,
+                _step2,
+                _step4,
+                true,
+                get_p_signature()
+            );
+        }
+        if constexpr(ax == 3)
+        {
+            return Array3<T>(
+                _data + idx * _step4,
+                _shape1,
+                _shape2,
+                _shape3,
+                _step1,
+                _step2,
+                _step3,
+                true,
+                get_p_signature()
+            );
+        }
     }
 
+    int get_min_axis() const
+    {
+        int min_ax = 0;
+        int min_shape = _shape1;
+        if(_shape2 < min_shape)
+        {
+            min_ax = 1;
+            min_shape = _shape2;
+        }
+        if(_shape3 < min_shape)
+        {
+            min_ax = 2;
+            min_shape = _shape3;
+        }
+        if(_shape4 < min_shape)
+        {
+            min_ax = 3;
+        }
+        return min_ax;
+    }
+
+    bool is_compact() const
+    {
+        return _step4 == 1 && _step3 == _shape4 && _step2 == _shape3 * _shape4 && _step1 == _shape2 * _shape3 * _shape4;
+    }
+
+    Array<T> get_compact_view() const
+    {
+        return Array<T>(_data, _shape1 * _shape2 * _shape3 * _shape4, 1, true, get_p_signature());
+    }
 public:
     Array4()
     {
@@ -244,7 +318,7 @@ public:
         {
             for(int j = 0; j < _shape4; j++)
             {
-                result.at(i,j) = _at(idx1[i], idx2[i], idx3[i], j);
+                result.at(i,j) = at(idx1[i], idx2[i], idx3[i], j);
             }
         }
         return result;
@@ -564,11 +638,7 @@ public:
     Array4<U> as_type() const {
         _check_valid();
         auto res = Array4<U>::zeros(shape());
-
-        for(int i1 = 0; i1 < _shape1; i1++) 
-        {
-            res._get(i1).copy_from(_get(i1));
-        }
+        res.copy_from(*this);
         return res;
     }
 
@@ -582,6 +652,7 @@ public:
         _check_valid();
         T* data = _data;
         _data = NULL;
+        _shape1 = _shape2 = _shape3 = _shape4 = 0;
         return data;
     }
 
@@ -598,9 +669,41 @@ public:
                 oth._shape1, oth._shape2, oth._shape3, oth._shape4);
         }
 
-        for(int i1 = 0; i1 < _shape1; i1++) 
+        if(is_compact() && oth.is_compact())
         {
-            _get(i1).copy_from(oth._get(i1));
+            get_compact_view().copy_from(oth.get_compact_view());
+        }
+        else
+        {
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
+            {
+                for(int i = 0; i < _shape1; i++) 
+                {
+                    _get<0>(i).copy_from(oth.template _get<0>(i));
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i = 0; i < _shape2; i++) 
+                {
+                    _get<1>(i).copy_from(oth.template _get<1>(i));
+                }
+            }
+            if(min_ax == 2)
+            {
+                for(int i = 0; i < _shape3; i++) 
+                {
+                    _get<2>(i).copy_from(oth.template _get<2>(i));
+                }
+            }
+            if(min_ax == 3)
+            {
+                for(int i = 0; i < _shape4; i++) 
+                {
+                    _get<3>(i).copy_from(oth.template _get<3>(i));
+                }
+            }
         }
     }
 
@@ -613,8 +716,40 @@ public:
     void set_all(const T& value)
     {
         _check_valid();
-        for(int i1=0; i1 < _shape1; i1++){
-            _get(i1).set_all(value);
+        if(is_compact())
+        {
+            get_compact_view().set_all(value);
+            return;
+        }
+
+        int min_ax = get_min_axis();
+        if(min_ax == 0)
+        {
+            for(int i=0; i < _shape1; i++)
+            {
+                _get<0>(i).set_all(value);
+            }
+        }
+        if(min_ax == 1)
+        {
+            for(int i=0; i < _shape2; i++)
+            {
+                _get<1>(i).set_all(value);
+            }
+        }
+        if(min_ax == 2)
+        {
+            for(int i=0; i < _shape3; i++)
+            {
+                _get<2>(i).set_all(value);
+            }
+        }
+        if(min_ax == 3)
+        {
+            for(int i=0; i < _shape4; i++)
+            {
+                _get<3>(i).set_all(value);
+            }
         }
     }
 
@@ -625,11 +760,48 @@ public:
         res._check_valid();
         assert(func <= NUM_FUNC);
 
-        for(int i1 = 0; i1 < _shape1; i1++)
+        if(is_compact() && res.is_compact())
         {
-            auto res_row = res._get(i1); 
-            _get(i1).template unary_ops_compute<func>(res_row);
+            auto tmp = res.get_compact_view();
+            get_compact_view().template unary_ops_compute<func>(tmp);
         }
+        else 
+        {
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
+            {
+                for(int i1 = 0; i1 < _shape1; i1++)
+                {
+                    auto tmp = res.template _get<0>(i1); 
+                    _get<0>(i1).template unary_ops_compute<func>(tmp);
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i2 = 0; i2 < _shape2; i2++)
+                {
+                    auto tmp = res.template _get<1>(i2); 
+                    _get<1>(i2).template unary_ops_compute<func>(tmp);
+                }
+            }
+            if(min_ax == 2)
+            {
+                for(int i3 = 0; i3 < _shape3; i3++)
+                {
+                    auto tmp = res.template _get<2>(i3); 
+                    _get<2>(i3).template unary_ops_compute<func>(tmp);
+                }
+            }
+            if(min_ax == 3)
+            {
+                for(int i4 = 0; i4 < _shape4; i4++)
+                {
+                    auto tmp = res.template _get<3>(i4); 
+                    _get<3>(i4).template unary_ops_compute<func>(tmp);
+                }
+            }
+        }
+        
     }
 
     template<int func>
@@ -704,8 +876,8 @@ public:
         return unary_ops<FUNC_ATAN>();
     }
 
-    template<int ops, typename U>
-    void bin_ops_assign(const U& rhs) {
+    template<int ops>
+    void bin_ops_assign(const T& rhs) {
         _check_valid();
 
         if constexpr(ops > NUM_OP)
@@ -713,14 +885,47 @@ public:
             panic("Invalid operator: %d\n", ops);
         }
 
-        for(int i = 0; i < _shape1; i++)
+        if(is_compact())
         {
-            _get(i).template bin_ops_assign<ops>(rhs);
+            get_compact_view().template bin_ops_assign<ops>(rhs);
+        }
+        else
+        {
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
+            {
+                for(int i1 = 0; i1 < _shape1; i1++)
+                {
+                    _get<0>(i1).template bin_ops_assign<ops>(rhs);
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i2 = 0; i2 < _shape2; i2++)
+                {
+                    _get<1>(i2).template bin_ops_assign<ops>(rhs);
+                }
+            }
+            if(min_ax == 2)
+            {
+                for(int i3 = 0; i3 < _shape3; i3++)
+                {
+                    _get<2>(i3).template bin_ops_assign<ops>(rhs);
+                }
+            }
+            if(min_ax == 3)
+            {
+                for(int i4 = 0; i4 < _shape4; i4++)
+                {
+                    _get<3>(i4).template bin_ops_assign<ops>(rhs);
+                }
+            }
         }
     }
 
     template<int ops>
     void bin_ops_assign(const Array4<T>& rhs) {
+
         _check_valid();
         rhs._check_valid();
 
@@ -742,22 +947,46 @@ public:
             );
         }
 
-        if(rhs._shape1 == 1)
-        {
-            for(int i1 = 0; i1 < _shape1; i1++)
-            {
-                _get(i1).template bin_ops_assign<ops>(rhs._get(0));
-            }
+        if(is_compact() && rhs.is_compact() &&
+            _shape1 == rhs._shape1 && _shape2 == rhs._shape2 && 
+            _shape3 == rhs._shape3 && _shape4 == rhs._shape4
+        ){
+            auto tmp = get_compact_view();
+            tmp.template bin_ops_assign<ops>(rhs.get_compact_view());
         }
         else
         {
-            for(int i1 = 0; i1 < _shape1; i1++)
+            int min_ax = get_min_axis();
+            if(min_ax == 0)
             {
-                _get(i1).template bin_ops_assign<ops>(rhs._get(i1));
+                for(int i1 = 0; i1 < _shape1; i1++)
+                {
+                    _get<0>(i1).template bin_ops_assign<ops>(rhs.template _get<0>(i1 < rhs._shape1 ? i1 : 0));
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i2 = 0; i2 < _shape2; i2++)
+                {
+                    _get<1>(i2).template bin_ops_assign<ops>(rhs.template _get<1>(i2 < rhs._shape2 ? i2 : 0));
+                }
+            }
+            if(min_ax == 2)
+            {
+                for(int i3 = 0; i3 < _shape3; i3++)
+                {
+                    _get<2>(i3).template bin_ops_assign<ops>(rhs.template _get<2>(i3 < rhs._shape3 ? i3 : 0));
+                }
+            }
+            if(min_ax == 3)
+            {
+                for(int i4 = 0; i4 < _shape4; i4++)
+                {
+                    _get<3>(i4).template bin_ops_assign<ops>(rhs.template _get<3>(i4 < rhs._shape4 ? i4 : 0));
+                }
             }
         }
     }
-
 
     template<typename U>
     void operator +=(const U& rhs) {
@@ -779,9 +1008,8 @@ public:
         return bin_ops_assign<OP_DIV>(rhs);
     }
 
-
-    template<typename U, int ops, typename V>
-    static void bin_ops_compute(const Array4<T>& lhs, const V& rhs, Array4<U>& res)
+    template<typename U, int ops>
+    static void bin_ops_compute(const Array4<T>& lhs, const T& rhs, Array4<U>& res)
     {
         lhs._check_valid();
 
@@ -790,14 +1018,63 @@ public:
             panic("Invalid operator: %d", ops);
         }
 
-        for(int i1 = 0; i1 < lhs._shape1; i1++)
+        if(lhs.is_compact() && res.is_compact())
         {
-            auto tmp = res._get(i1);
-            Array3<T>::template bin_ops_compute<U, ops, V>(
-                lhs._get(i1),
-                rhs,
-                tmp
-            );
+            auto tmp = res.get_compact_view();
+            Array<T>::template bin_ops_compute<U, ops>(lhs.get_compact_view(), rhs, tmp);
+        }
+        else 
+        {
+            int min_ax = lhs.get_min_axis();
+
+            if(min_ax == 0)
+            {
+                for(int i = 0; i < lhs._shape1; i++)
+                {
+                    auto tmp = res.template _get<0>(i);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<0>(i),
+                        rhs,
+                        tmp
+                    );
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i = 0; i < lhs._shape2; i++)
+                {
+                    auto tmp = res.template _get<1>(i);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<1>(i),
+                        rhs,
+                        tmp
+                    );
+                }
+            }
+            if(min_ax == 2)
+            {
+                for(int i = 0; i < lhs._shape3; i++)
+                {
+                    auto tmp = res.template _get<2>(i);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<2>(i),
+                        rhs,
+                        tmp
+                    );
+                }
+            }
+            if(min_ax == 3)
+            {
+                for(int i = 0; i < lhs._shape4; i++)
+                {
+                    auto tmp = res.template _get<3>(i);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<3>(i),
+                        rhs,
+                        tmp
+                    );
+                }
+            }
         }
     }
 
@@ -822,31 +1099,73 @@ public:
         }
 
         int shape1 = lhs._shape1 > rhs._shape1 ? lhs._shape1 : rhs._shape1;
-        assert(lhs._shape1 == 1 || lhs._shape1 == shape1);
-        assert(rhs._shape1 == 1 || rhs._shape1 == shape1);
+        int shape2 = lhs._shape2 > rhs._shape2 ? lhs._shape2 : rhs._shape2;
+        int shape3 = lhs._shape3 > rhs._shape3 ? lhs._shape3 : rhs._shape3;
+        int shape4 = lhs._shape4 > rhs._shape4 ? lhs._shape4 : rhs._shape4;
 
-        if(lhs._shape1 > 1 && rhs._shape1 > 1)
-        {
-            for(int i1 = 0; i1 < shape1; i1++)
-            {
-                auto tmp = res._get(i1);
-                Array3<T>::template bin_ops_compute<U, ops>(
-                    lhs._get(i1),
-                    rhs._get(i1),
-                    tmp
-                );
-            }            
-        }
+        if(lhs.is_compact() && rhs.is_compact() && res.is_compact() &&
+            lhs._shape1 == rhs._shape1 && lhs._shape2 == rhs._shape2 &&
+            lhs._shape3 == rhs._shape3 && lhs._shape4 == rhs._shape4
+        ){
+            auto tmp = res.get_compact_view();
+            Array<T>::template bin_ops_compute<U, ops>(
+                lhs.get_compact_view(),
+                rhs.get_compact_view(),
+                tmp
+            );
+        } 
         else
         {
-            for(int i1 = 0; i1 < shape1; i1++)
+            int min_ax = lhs.get_min_axis();
+            if(min_ax == 0)
             {
-                auto tmp = res._get(i1);
-                Array3<T>::template bin_ops_compute<U, ops>(
-                    lhs._get(lhs._shape1 > 1? i1 : 0),
-                    rhs._get(rhs._shape1 > 1? i1:0),
-                    tmp
-                );
+                for(int i1 = 0; i1 < shape1; i1++)
+                {
+                    auto tmp = res.template _get<0>(i1);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<0>(i1 < lhs._shape1 ? i1 : 0),
+                        rhs.template _get<0>(i1 < rhs._shape1 ? i1 : 0),
+                        tmp
+                    );
+                }
+            }
+            if(min_ax == 1)
+            {
+                for(int i2 = 0; i2 < shape2; i2++)
+                {
+                    auto tmp = res.template _get<1>(i2);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<1>(i2 < lhs._shape2 ? i2 : 0),
+                        rhs.template _get<1>(i2 < rhs._shape2 ? i2 : 0),
+                        tmp
+                    );
+                }
+
+            }
+            if(min_ax == 2)
+            {
+                for(int i3 = 0; i3 < shape3; i3++)
+                {
+                    auto tmp = res.template _get<2>(i3);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<2>(i3 < lhs._shape3 ? i3 : 0),
+                        rhs.template _get<2>(i3 < rhs._shape3 ? i3 : 0),
+                        tmp
+                    );
+                }
+
+            }
+            if(min_ax == 3)
+            {
+                for(int i4 = 0; i4 < shape4; i4++)
+                {
+                    auto tmp = res.template _get<3>(i4);
+                    Array3<T>::template bin_ops_compute<U, ops>(
+                        lhs.template _get<3>(i4 < lhs._shape4 ? i4 : 0),
+                        rhs.template _get<3>(i4 < rhs._shape4 ? i4 : 0),
+                        tmp
+                    );
+                }
             }
         }
     }

@@ -27,6 +27,33 @@ namespace np {
         return Array<T>::new_array(data, n);
     }
 
+    
+    static Array<double> arange(double start, double stop, double step)
+    {
+        List<double> lst;
+        if(step > 0)
+        {
+            while(start < stop)
+            {
+                lst.append(start);
+                start += step;
+            }
+        }
+        else if(step < 0) 
+        {
+            while(start > stop)
+            {
+                lst.append(start);
+                start += step;
+            }
+        }
+        else 
+        {
+            panic("Step 0 is now allowed");
+        }
+        return Array<double>::from_list(lst);
+    }
+
     template<typename U, typename T>
     U sum(const Array<T>& arr)
     {

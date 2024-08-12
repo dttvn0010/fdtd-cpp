@@ -723,6 +723,7 @@ public:
         _check_valid();
         T* data = _data;
         _data = NULL;
+        _size = 0;
         return data;
     }
 
@@ -845,13 +846,15 @@ public:
 
         if(is_compact() && res.is_compact())
         {
-            for(int i = 0; i < _size; i++){
+            for(int i = 0; i < _size; i++)
+            {
                 res._at_compact(i) = _unary_ops<T, func>(_at_compact(i));
             }
         }
         else
         {
-            for(int i = 0; i < _size; i++){
+            for(int i = 0; i < _size; i++)
+            {
                 res._at(i) = _unary_ops<T, func>(_at(i));
             }
         }
@@ -942,13 +945,23 @@ public:
 
         if(is_compact())
         {
-            for(int i=0; i < _size; i++){
+            for(int i = 0; i < _size; i++)
+            {
                 _bin_ops_assign<T, ops>(_at_compact(i), rhs);
             }
         }
         else
         {
-            for(int i=0; i < _size; i++){
+            int i = 0;
+            for(; i+3 < _size; i+=4)
+            {
+                _bin_ops_assign<T, ops>(_at(i), rhs);
+                _bin_ops_assign<T, ops>(_at(i+1), rhs);
+                _bin_ops_assign<T, ops>(_at(i+2), rhs);
+                _bin_ops_assign<T, ops>(_at(i+3), rhs);
+            }
+            for(; i < _size; i++)
+            {
                 _bin_ops_assign<T, ops>(_at(i), rhs);
             }
         }
@@ -994,32 +1007,30 @@ public:
         {
             if(is_compact() && rhs.is_compact())
             {
-                for(int i=0; i < _size; i++){
+                for(int i = 0; i < _size; i++)
+                {
                     _bin_ops_assign<T, ops>(_at_compact(i), rhs._at_compact(i));
                 }
             }
             else
             {
-                for(int i=0; i < _size; i++){
+                int i = 0;
+                for(; i+3 < _size; i+=4)
+                {
+                    _bin_ops_assign<T, ops>(_at(i), rhs._at(i));
+                    _bin_ops_assign<T, ops>(_at(i+1), rhs._at(i+1));
+                    _bin_ops_assign<T, ops>(_at(i+2), rhs._at(i+2));
+                    _bin_ops_assign<T, ops>(_at(i+3), rhs._at(i+3));
+                }
+                for(;i < _size; i++)
+                {
                     _bin_ops_assign<T, ops>(_at(i), rhs._at(i));
                 }
             }
-            
-        }else
+        }
+        else
         {
-            T r = rhs._at(0);
-            if(is_compact())
-            {
-                for(int i=0; i < _size; i++){
-                    _bin_ops_assign<T, ops>(_at_compact(i), r);
-                }
-            }
-            else
-            {
-                for(int i=0; i < _size; i++){
-                    _bin_ops_assign<T, ops>(_at(i), r);
-                }
-            }
+            bin_ops_assign<ops>(rhs._at(0));
         }
     }
 
@@ -1060,7 +1071,7 @@ public:
     {
         if(result.is_compact() && lhs.is_compact())
         {
-            for(int i = 0; i < result._size; i++)
+            for(int i = 0;i < result._size; i++)
             {
                 result._at_compact(i) = _bin_ops<T, U, ops>(lhs._at_compact(i), rhs);
             }
@@ -1166,7 +1177,7 @@ public:
             }
             else
             {
-                for(int i = 0; i < result._size; i++)
+                for(int i = 0; i < result._size;i++)
                 {
                     result._at(i) = _bin_ops<T, U, ops>(l, rhs._at(i));
                 }
@@ -1174,22 +1185,7 @@ public:
         }
         else if(rhs._size == 1)
         {
-            T r = rhs._at(0);
-            if(result.is_compact() && lhs.is_compact())
-            {
-                for(int i = 0; i < result._size; i++)
-                {
-                    result._at_compact(i) = _bin_ops<T, U, ops>(lhs._at_compact(i), r);
-                }
-            }
-            else
-            {
-                for(int i = 0; i < result._size; i++)
-                {
-                    result._at(i) = _bin_ops<T, U, ops>(lhs._at(i), r);
-                }
-            }
-            
+            bin_ops_compute<U, ops>(lhs, rhs._at(9), result);
         }
         else
         {
@@ -1202,7 +1198,7 @@ public:
             }
             else
             {
-                for(int i = 0; i < result._size; i++)
+                for(int i =0; i < result._size; i++)
                 {
                     result._at(i) = _bin_ops<T, U, ops>(lhs._at(i), rhs._at(i));
                 }
